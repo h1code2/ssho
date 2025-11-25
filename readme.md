@@ -24,17 +24,13 @@ Have you ever looked at your terminal and thought, *"This needs more... void"*? 
 
 ## 🛠️ Installation
 
-### The Easy Way
-
-Download the latest release from the [Releases](https://www.google.com/search?q=https://github.com/yourname/ssho/releases) page (Coming soon... or whenever I upload it).
-
 ### The "I Trust No One" Way (Build from source)
 
 You need Go 1.16+ installed.
 
 ```bash
 # Clone this repo
-git clone https://github.com/yourname/ssho.git
+git clone https://github.com/h1code2/ssho.git
 cd ssho
 
 # Build the magic
