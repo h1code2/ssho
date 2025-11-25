@@ -1,45 +1,35 @@
-# .goreleaser.yaml
-version: 2
+# .github/workflows/release.yml
+name: Release
 
-before:
-  hooks:
-    # 确保依赖已下载
-    - go mod tidy
+on:
+  push:
+    tags:
+      - 'v*'
 
-builds:
-  - env:
-      - CGO_ENABLED=0
-    goos:
-      - linux
-      - darwin
-    goarch:
-      - amd64
-      - arm64
-    # 这就是我们之前手动运行的编译命令参数，减小体积
-    ldflags:
-      - -s -w
-    # 二进制文件的名字
-    binary: ssho
+# === 关键修复：添加写入权限 ===
+permissions:
+  contents: write # 授予整个工作流写入 contents 的权限 (包括创建 Release 和上传 Assets)
 
-archives:
-  - format: tar.gz
-    # 压缩包名称格式：ssho_1.0.0_linux_amd64.tar.gz
-    name_template: >-
-      {{ .ProjectName }}_
-      {{- .Version }}_
-      {{- .Os }}_
-      {{- .Arch }}
-    # 包含 README 和 License 文件到压缩包中
-    files:
-      - readme.md
-      - LICENSE
+jobs:
+  goreleaser:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-checksum:
-  name_template: 'checksums.txt'
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
 
-changelog:
-  sort: asc
-  filters:
-    exclude:
-      - '^docs:'
-      - '^test:'
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: latest
+          args: release --clean
+        env:
+          # GITHUB_TOKEN 是自动使用的
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
