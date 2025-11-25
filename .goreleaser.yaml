@@ -1,0 +1,45 @@
+# .goreleaser.yaml
+version: 2
+
+before:
+  hooks:
+    # 确保依赖已下载
+    - go mod tidy
+
+builds:
+  - env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    # 这就是我们之前手动运行的编译命令参数，减小体积
+    ldflags:
+      - -s -w
+    # 二进制文件的名字
+    binary: ssho
+
+archives:
+  - format: tar.gz
+    # 压缩包名称格式：ssho_1.0.0_linux_amd64.tar.gz
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- .Os }}_
+      {{- .Arch }}
+    # 包含 README 和 License 文件到压缩包中
+    files:
+      - README.md
+      - LICENSE
+
+checksum:
+  name_template: 'checksums.txt'
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'

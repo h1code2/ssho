@@ -1,0 +1,36 @@
+# .github/workflows/release.yml
+name: Release
+
+on:
+  push:
+    # 只有推送 tag 时才触发发布流程
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write # 需要写入权限来上传 Release
+
+jobs:
+  goreleaser:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # 获取完整的 git 历史，这对生成变更日志很重要
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21' # 或者你当前使用的 Go 版本
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          # 自动下载并运行最新版的 GoReleaser
+          distribution: goreleaser
+          version: latest
+          args: release --clean
+        env:
+          # GITHUB_TOKEN 是 GitHub 自动生成的，不需要你去申请
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
