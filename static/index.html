@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Pro Cloud Shell</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css"/>
+    <style>
+        :root {
+            /* 基础变量 */
+            --bg-color: #0d1117;
+            --dot-color: #21262d;
+            --win-bg: #161b22;
+            --text-color: #c9d1d9;
+            --border-color: #30363d;
+            --header-bg: #161b22;
+            --accent-color: #238636; /* 强调色 */
+
+            /* 阴影 */
+            --shadow: 0 4px 12px rgba(0, 0, 0, 0.4), 0 0 0 1px var(--border-color);
+            --shadow-drag: 0 20px 40px rgba(0, 0, 0, 0.6), 0 0 0 1px var(--border-color);
+        }
+
+        body {
+            margin: 0;
+            background-color: var(--bg-color);
+            overflow: hidden;
+            height: 100vh;
+            width: 100vw;
+            font-family: -apple-system, BlinkMacSystemFont, "SF Mono", "Segoe UI Mono", monospace;
+            -webkit-font-smoothing: antialiased;
+            text-rendering: optimizeLegibility;
+            user-select: none;
+
+            background-image: radial-gradient(var(--dot-color) 1px, transparent 1px);
+            background-size: 20px 20px;
+            transition: background-color 0.3s ease;
+        }
+
+        * {
+            outline: none !important;
+        }
+
+        .xterm-viewport {
+            outline: none !important;
+            border: none !important;
+        }
+
+        #world {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 0;
+            height: 0;
+            z-index: 1;
+            will-change: transform;
+        }
+
+        /* 终端窗口样式 */
+        .term-window {
+            position: absolute;
+            width: 720px;
+            height: 450px;
+            background-color: var(--win-bg);
+            border-radius: 8px;
+            box-shadow: var(--shadow);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            pointer-events: auto;
+            transition: transform 0.1s linear, opacity 0.2s, box-shadow 0.2s;
+            will-change: transform;
+            background-clip: padding-box;
+        }
+
+        .term-window.is-dragging {
+            transition: none !important;
+            box-shadow: var(--shadow-drag);
+            opacity: 0.85;
+            z-index: 9999 !important;
+        }
+
+        .term-window.active {
+            z-index: 1000;
+        }
+
+        .term-header {
+            height: 36px;
+            display: flex;
+            align-items: center;
+            padding: 0 12px;
+            background-color: var(--header-bg);
+            cursor: default;
+            border-bottom: 1px solid var(--border-color);
+            transition: background-color 0.3s, border-color 0.3s;
+        }
+
+        .term-header:hover {
+            cursor: grab;
+        }
+
+        .traffic-lights {
+            display: flex;
+            gap: 6px;
+            margin-right: 12px;
+        }
+
+        .mac-btn {
+            width: 11px;
+            height: 11px;
+            border-radius: 50%;
+            border: none;
+        }
+
+        .close-btn {
+            background-color: #ff5f56;
+            cursor: pointer;
+        }
+
+        .min-btn {
+            background-color: #febc2e;
+        }
+
+        .max-btn {
+            background-color: #28c840;
+        }
+
+        .term-title {
+            color: var(--text-color);
+            opacity: 0.7;
+            font-size: 12px;
+            font-weight: 500;
+            pointer-events: none;
+            margin-left: 6px;
+        }
+
+        .term-body {
+            flex: 1;
+            padding: 4px 0 0 8px;
+            position: relative;
+            background-color: var(--win-bg);
+            transition: background-color 0.3s;
+        }
+
+        .xterm-viewport::-webkit-scrollbar {
+            width: 0;
+        }
+
+        /* === 全新设计的底部 Dock 栏 === */
+        #dock {
+            position: fixed;
+            bottom: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 9999;
+
+            display: flex;
+            align-items: center;
+            gap: 20px;
+
+            /* 毛玻璃背景 */
+            background: rgba(22, 27, 34, 0.7);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+
+            padding: 10px 25px;
+            border-radius: 50px;
+            border: 1px solid var(--border-color);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+
+            transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+        }
+
+        #dock:hover {
+            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.5);
+            transform: translateX(-50%) translateY(-2px);
+        }
+
+        .ui-btn {
+            border: none;
+            background: transparent;
+            color: var(--text-color);
+            font-size: 20px;
+            cursor: pointer;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+            opacity: 0.8;
+        }
+
+        .ui-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            opacity: 1;
+            transform: scale(1.1);
+        }
+
+        /* 核心：巨大的添加按钮 */
+        #add-btn {
+            width: 56px;
+            height: 56px;
+            background: var(--accent-color);
+            color: white;
+            font-size: 32px;
+            font-weight: 300;
+            border-radius: 50%;
+            box-shadow: 0 4px 15px rgba(35, 134, 54, 0.4); /* 绿色发光 */
+            margin: -20px 10px 0 10px; /* 让它稍微突出一点 */
+            opacity: 1;
+        }
+
+        #add-btn:hover {
+            transform: scale(1.1) rotate(90deg); /* 旋转特效 */
+            background: #2ea043;
+            box-shadow: 0 6px 20px rgba(46, 160, 67, 0.6);
+        }
+
+        #add-btn:active {
+            transform: scale(0.95);
+        }
+
+    </style>
+</head>
+<body>
+
+<div id="world"></div>
+
+<div id="dock">
+    <button id="theme-btn" class="ui-btn" title="Switch Theme">🎨</button>
+    <button id="add-btn" class="ui-btn" title="New Terminal">+</button>
+    <button id="reset-btn" class="ui-btn" title="Reset Layout">↺</button>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xterm-addon-webgl@0.16.0/lib/xterm-addon-webgl.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/interactjs/dist/interact.min.js"></script>
+
+<script>
+    const world = document.getElementById('world');
+    const addBtn = document.getElementById('add-btn');
+    const resetBtn = document.getElementById('reset-btn');
+    const themeBtn = document.getElementById('theme-btn');
+
+    let zIndexCounter = 100;
+    let activeWin = null;
+    let panX = 0;
+    let panY = 0;
+    let isPanning = false;
+
+    // ============================
+    // 主题配置
+    // ============================
+    const themes = [
+        {
+            name: 'GitHub Dark',
+            css: {
+                '--bg-color': '#0d1117', '--dot-color': '#21262d', '--win-bg': '#161b22',
+                '--header-bg': '#161b22', '--border-color': '#30363d', '--text-color': '#c9d1d9',
+                '--accent-color': '#238636'
+            },
+            xterm: {
+                background: '#161b22',
+                foreground: '#c9d1d9',
+                cursor: '#58a6ff',
+                selectionBackground: '#1f6feb',
+                black: '#484f58',
+                blue: '#58a6ff'
+            }
+        },
+        {
+            name: 'One Dark Pro',
+            css: {
+                '--bg-color': '#21252b', '--dot-color': '#2c313a', '--win-bg': '#282c34',
+                '--header-bg': '#21252b', '--border-color': '#181a1f', '--text-color': '#abb2bf',
+                '--accent-color': '#61afef'
+            },
+            xterm: {
+                background: '#282c34',
+                foreground: '#abb2bf',
+                cursor: '#528bff',
+                selectionBackground: '#3e4451',
+                black: '#282c34'
+            }
+        },
+        {
+            name: 'Solarized Light',
+            css: {
+                '--bg-color': '#fdf6e3', '--dot-color': '#eee8d5', '--win-bg': '#fdf6e3',
+                '--header-bg': '#eee8d5', '--border-color': '#d3d7cf', '--text-color': '#657b83',
+                '--accent-color': '#268bd2'
+            },
+            xterm: {
+                background: '#fdf6e3',
+                foreground: '#657b83',
+                cursor: '#586e75',
+                selectionBackground: '#eee8d5',
+                black: '#073642'
+            }
+        },
+        {
+            name: 'Monokai',
+            css: {
+                '--bg-color': '#222222', '--dot-color': '#333333', '--win-bg': '#2d2a2e',
+                '--header-bg': '#19181a', '--border-color': '#19181a', '--text-color': '#fcfcfa',
+                '--accent-color': '#ff6188'
+            },
+            xterm: {
+                background: '#2d2a2e',
+                foreground: '#fcfcfa',
+                cursor: '#ffd866',
+                selectionBackground: '#403e41',
+                black: '#2d2a2e'
+            }
+        }
+    ];
+
+    let currentThemeIndex = 0;
+    const activeTerms = new Set();
+
+    function applyTheme(index) {
+        currentThemeIndex = index;
+        const theme = themes[index];
+        for (const [key, value] of Object.entries(theme.css)) {
+            document.documentElement.style.setProperty(key, value);
+        }
+        activeTerms.forEach(term => {
+            term.options.theme = theme.xterm;
+            term.refresh(0, term.rows - 1);
+        });
+        saveState();
+        // 动态更新按钮图标
+        themeBtn.innerText = ["🎨", "🌙", "☀️", "🔥"][index] || "🎨";
+    }
+
+    themeBtn.addEventListener('click', () => {
+        applyTheme((currentThemeIndex + 1) % themes.length);
+    });
+
+    // ============================
+    // 状态管理
+    // ============================
+    function saveState() {
+        const windows = [];
+        document.querySelectorAll('.term-window').forEach(win => {
+            windows.push({
+                id: win.getAttribute('data-id'),
+                x: parseFloat(win.getAttribute('data-x')),
+                y: parseFloat(win.getAttribute('data-y')),
+                w: win.style.width, h: win.style.height,
+                zIndex: win.style.zIndex
+            });
+        });
+        const state = {panX, panY, windows, themeIndex: currentThemeIndex};
+        localStorage.setItem('ssho_state_final', JSON.stringify(state));
+    }
+
+    function loadState() {
+        const raw = localStorage.getItem('ssho_state_final');
+        if (!raw) {
+            applyTheme(0);
+            createTerminal();
+            return;
+        }
+        try {
+            const state = JSON.parse(raw);
+            panX = state.panX || 0;
+            panY = state.panY || 0;
+            applyTheme(state.themeIndex || 0);
+            updateWorldTransform();
+            if (state.windows && state.windows.length > 0) {
+                state.windows.forEach(winData => createTerminal(winData));
+            } else {
+                createTerminal();
+            }
+        } catch (e) {
+            createTerminal();
+        }
+    }
+
+    function updateWorldTransform() {
+        const rX = Math.round(panX);
+        const rY = Math.round(panY);
+        world.style.transform = `translate(${rX}px, ${rY}px)`;
+        document.body.style.backgroundPosition = `${rX}px ${rY}px`;
+    }
+
+    // ============================
+    // 交互逻辑
+    // ============================
+    window.addEventListener('mousedown', (e) => {
+        const isMiddleClick = e.button === 1;
+        const isSpaceClick = e.button === 0 && e.code === 'Space';
+        // 关键：防止点击 Dock 栏触发拖拽
+        if (e.target.closest('#dock') || e.target.closest('.term-window')) return;
+        if (isMiddleClick || e.target === document.body || isSpaceClick) {
+            isPanning = true;
+            document.body.style.cursor = 'grabbing';
+            e.preventDefault();
+        }
+    });
+    window.addEventListener('mouseup', () => {
+        if (isPanning) {
+            isPanning = false;
+            document.body.style.cursor = 'default';
+            saveState();
+        }
+    });
+    window.addEventListener('mousemove', (e) => {
+        if (!isPanning) return;
+        panX += e.movementX;
+        panY += e.movementY;
+        updateWorldTransform();
+    });
+    window.addEventListener('keydown', (e) => {
+        if (e.code === 'Space' && !e.target.matches('input, textarea')) document.body.style.cursor = 'grab';
+    });
+    window.addEventListener('keyup', (e) => {
+        if (e.code === 'Space') {
+            document.body.style.cursor = 'default';
+            isPanning = false;
+        }
+    });
+
+    addBtn.addEventListener('click', () => {
+        createTerminal();
+        saveState();
+    });
+    resetBtn.addEventListener('click', () => {
+        if (confirm('Clear Layout?')) {
+            localStorage.removeItem('ssho_state_final');
+            location.reload();
+        }
+    });
+
+    // 挤开算法
+    function repelWindows(newWin, finalX, finalY) {
+        const windows = Array.from(document.querySelectorAll('.term-window'));
+        const winWidth = 720;
+        const winHeight = 450;
+        const repelRadius = 600;
+        const newCenterX = finalX + winWidth / 2;
+        const newCenterY = finalY + winHeight / 2;
+        let changed = false;
+        windows.forEach(otherWin => {
+            if (otherWin === newWin) return;
+            let otherX = parseFloat(otherWin.getAttribute('data-x')) || 0;
+            let otherY = parseFloat(otherWin.getAttribute('data-y')) || 0;
+            const dx = (otherX + winWidth / 2) - newCenterX;
+            const dy = (otherY + winHeight / 2) - newCenterY;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            if (distance < repelRadius) {
+                let dirX = dx / distance;
+                let dirY = dy / distance;
+                if (distance === 0) {
+                    dirX = 1;
+                    dirY = 0;
+                }
+                const pushFactor = (repelRadius - distance) * 0.8;
+                const newOtherX = Math.round(otherX + dirX * pushFactor);
+                const newOtherY = Math.round(otherY + dirY * pushFactor);
+                otherWin.setAttribute('data-x', newOtherX);
+                otherWin.setAttribute('data-y', newOtherY);
+                otherWin.style.transform = `translate(${newOtherX}px, ${newOtherY}px)`;
+                changed = true;
+            }
+        });
+        if (changed) setTimeout(saveState, 500);
+    }
+
+    function generateUUID() {
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+            const r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+            return v.toString(16);
+        });
+    }
+
+    function createTerminal(restoredData = null) {
+        const win = document.createElement('div');
+        win.className = 'term-window active';
+        let finalX, finalY, w, h, termId;
+
+        if (restoredData) {
+            finalX = restoredData.x;
+            finalY = restoredData.y;
+            w = restoredData.w;
+            h = restoredData.h;
+            termId = restoredData.id;
+            if (restoredData.zIndex) zIndexCounter = Math.max(zIndexCounter, parseInt(restoredData.zIndex));
+        } else {
+            const winWidth = 720;
+            const winHeight = 450;
+            finalX = Math.round((window.innerWidth / 2) - panX - (winWidth / 2));
+            finalY = Math.round((window.innerHeight / 2) - panY - (winHeight / 2));
+            termId = generateUUID();
+        }
+
+        win.style.left = '0px';
+        win.style.top = '0px';
+        if (w) win.style.width = w;
+        if (h) win.style.height = h;
+        win.setAttribute('data-x', finalX);
+        win.setAttribute('data-y', finalY);
+        win.setAttribute('data-id', termId);
+        win.style.transform = `translate(${finalX}px, ${finalY}px)`;
+        win.style.zIndex = ++zIndexCounter;
+
+        win.innerHTML = `
+            <div class="term-header">
+                <div class="traffic-lights">
+                    <div class="mac-btn close-btn"></div>
+                    <div class="mac-btn min-btn"></div>
+                    <div class="mac-btn max-btn"></div>
+                </div>
+                <div class="term-title">local@${termId.slice(0, 4)}</div>
+            </div>
+            <div class="term-body"></div>
+        `;
+
+        world.appendChild(win);
+        activateWindow(win);
+        if (!restoredData) repelWindows(win, finalX, finalY);
+
+        const term = new Terminal({
+            cursorBlink: true, cursorStyle: 'bar', cursorWidth: 2,
+            fontFamily: '"SF Mono", "Menlo", "Monaco", "Consolas", monospace',
+            fontSize: 13, lineHeight: 1.3,
+            allowTransparency: false, scrollback: 5000,
+            theme: themes[currentThemeIndex].xterm
+        });
+
+        const fitAddon = new FitAddon.FitAddon();
+        term.loadAddon(fitAddon);
+
+        const webglAddon = new WebglAddon.WebglAddon();
+        webglAddon.onContextLoss(() => webglAddon.dispose());
+        term.loadAddon(webglAddon);
+
+        term.open(win.querySelector('.term-body'));
+        requestAnimationFrame(() => fitAddon.fit());
+        activeTerms.add(term);
+
+        const ws = new WebSocket(`ws://${location.host}/ws?id=${termId}`);
+        ws.onopen = () => {
+            sendResize();
+            term.focus();
+        };
+        ws.onmessage = (e) => {
+            if (e.data instanceof Blob) {
+                const reader = new FileReader();
+                reader.onload = () => term.write(reader.result);
+                reader.readAsText(e.data);
+            } else {
+                term.write(e.data);
+            }
+        };
+        const encoder = new TextEncoder();
+        term.onData(data => {
+            if (ws.readyState === WebSocket.OPEN) ws.send(encoder.encode(data));
+        });
+
+        function sendResize() {
+            if (ws.readyState === WebSocket.OPEN) {
+                const dims = fitAddon.proposeDimensions();
+                if (dims) ws.send(JSON.stringify({type: 'resize', cols: term.cols, rows: term.rows}));
+            }
+        }
+
+        win.addEventListener('mousedown', () => {
+            activateWindow(win);
+            term.focus();
+        });
+        term.textarea.addEventListener('focus', () => {
+            term.options.cursorStyle = 'bar';
+            activateWindow(win);
+        });
+        term.textarea.addEventListener('blur', () => {
+            term.options.cursorStyle = 'block';
+        });
+
+        function activateWindow(targetWin) {
+            if (activeWin === targetWin) return;
+            if (activeWin) activeWin.classList.remove('active');
+            activeWin = targetWin;
+            activeWin.classList.add('active');
+            activeWin.style.zIndex = ++zIndexCounter;
+        }
+
+        interact(win)
+            .draggable({
+                allowFrom: '.term-header', ignoreFrom: '.traffic-lights',
+                onstart: (event) => {
+                    event.target.classList.add('is-dragging');
+                },
+                onend: (event) => {
+                    event.target.classList.remove('is-dragging');
+                    saveState();
+                },
+                listeners: {
+                    move(event) {
+                        const target = event.target;
+                        let x = (parseFloat(target.getAttribute('data-x')) || 0) + event.dx;
+                        let y = (parseFloat(target.getAttribute('data-y')) || 0) + event.dy;
+                        x = Math.round(x);
+                        y = Math.round(y);
+                        target.setAttribute('data-x', x);
+                        target.setAttribute('data-y', y);
+                        target.style.transform = `translate(${x}px, ${y}px)`;
+                    }
+                }
+            })
+            .resizable({
+                edges: {left: true, right: true, bottom: true, top: false}, margin: 10,
+                onend: () => saveState(),
+                listeners: {
+                    move(event) {
+                        let {x, y} = event.target.dataset;
+                        x = Math.round((parseFloat(x) || 0) + event.deltaRect.left);
+                        y = Math.round((parseFloat(y) || 0) + event.deltaRect.top);
+                        Object.assign(event.target.style, {
+                            width: `${Math.round(event.rect.width)}px`, height: `${Math.round(event.rect.height)}px`,
+                            transform: `translate(${x}px, ${y}px)`
+                        });
+                        Object.assign(event.target.dataset, {x, y});
+                        fitAddon.fit();
+                        sendResize();
+                    }
+                }
+            });
+
+        const ro = new ResizeObserver(() => {
+            fitAddon.fit();
+            sendResize();
+        });
+        ro.observe(win.querySelector('.term-body'));
+        win.querySelector('.close-btn').onclick = (e) => {
+            e.stopPropagation();
+            ws.close();
+            win.remove();
+            activeTerms.delete(term);
+            setTimeout(saveState, 100);
+        };
+    }
+
+    loadState();
+</script>
+</body>
+</html>
